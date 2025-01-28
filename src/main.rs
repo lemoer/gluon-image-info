@@ -6,24 +6,29 @@ use std::io;
 use std::io::{BufReader, Cursor};
 use std::{fs::File, io::Read};
 
-fn read_file_to_string(read_filesystem: &FilesystemReader, filename: &str) -> Option<String> {
+fn read_file_to_string(read_filesystem: &FilesystemReader, fullpath: &str) -> Option<String> {
     for node in read_filesystem.files() {
-        if node.fullpath.to_str().unwrap() != filename {
+        let Some(current_fullpath) = node.fullpath.to_str() else {
+            // If an inode doesn't have a fullpath, we do not care.
+            continue;
+        };
+
+        if current_fullpath != fullpath {
             continue;
         }
-        // extract
-        match &node.inner {
-            InnerNode::File(file) => {
-                let x = read_filesystem.file(&file);
-                let mut reader = x.reader();
 
-                let mut s = String::new();
-                reader.read_to_string(&mut s).unwrap();
+        let InnerNode::File(file) = &node.inner else {
+            // skip everyhting that is not a file
+            continue;
+        };
 
-                return Some(s);
-            }
-            _ => (),
-        }
+        let mut reader = read_filesystem.file(&file).reader();
+
+        let mut s = String::new();
+        return match reader.read_to_string(&mut s) {
+            Ok(_) => Some(s),
+            Err(_) => None, // non utf-8 file
+        };
     }
 
     return None;
@@ -45,6 +50,12 @@ impl ReadAt for ReadAtVec {
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
         let start = offset as usize;
         let end = start + buf.len();
+        if end > self.data.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Read past end of buffer",
+            ));
+        }
         buf.copy_from_slice(&self.data[start..end]);
         Ok(buf.len())
     }
@@ -64,25 +75,27 @@ fn main() {
         return;
     }
 
-    let file = File::open(compressed_diskpath).unwrap();
+    let file = File::open(compressed_diskpath).expect("Opening file failed");
     let mut decoder = flate2::read::GzDecoder::new(file);
     let mut buffer = Vec::new();
-    decoder.read_to_end(&mut buffer).unwrap();
+    decoder
+        .read_to_end(&mut buffer)
+        .expect("Decoding gzip failed");
 
     let x = ReadAtVec::new(buffer.clone());
-    // let reader = ...;
-    let partitions = list_partitions(&x, &Options::default()).unwrap();
-    if partitions.len() < 2 {
+    let partitions = list_partitions(&x, &Options::default()).expect("Listing partitions failed");
+
+    let Some(part) = partitions.get(1) else {
         println!("Not enough partitions!");
         return;
-    }
-    let part = &partitions[1];
+    };
 
-    let cursor2 = Cursor::new(buffer);
+    let cursor = Cursor::new(buffer);
 
     // read
-    let file = BufReader::new(cursor2);
-    let read_filesystem = FilesystemReader::from_reader_with_offset(file, part.first_byte).unwrap();
+    let reader = BufReader::new(cursor);
+    let read_filesystem = FilesystemReader::from_reader_with_offset(reader, part.first_byte)
+        .expect("Opening squashfs failed");
 
     let gluon_release =
         read_file_to_string(&read_filesystem, "/lib/gluon/release").map(|f| f.trim().to_owned());
