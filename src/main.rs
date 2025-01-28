@@ -82,8 +82,9 @@ fn main() {
         .read_to_end(&mut buffer)
         .expect("Decoding gzip failed");
 
-    let x = ReadAtVec::new(&buffer);
-    let partitions = list_partitions(&x, &Options::default()).expect("Listing partitions failed");
+    let read_at = ReadAtVec::new(&buffer);
+    let partitions =
+        list_partitions(&read_at, &Options::default()).expect("Listing partitions failed");
 
     let Some(part) = partitions.get(1) else {
         println!("Not enough partitions!");
