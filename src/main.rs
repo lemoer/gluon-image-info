@@ -36,17 +36,17 @@ fn read_file_to_string(read_filesystem: &FilesystemReader, fullpath: &str) -> Op
 
 // ReadAt wrapper for Vec<u8>
 
-struct ReadAtVec {
-    data: Vec<u8>,
+struct ReadAtVec<'a> {
+    data: &'a Vec<u8>,
 }
 
-impl ReadAtVec {
-    pub fn new(data: Vec<u8>) -> Self {
+impl<'a> ReadAtVec<'a> {
+    pub fn new(data: &'a Vec<u8>) -> Self {
         Self { data }
     }
 }
 
-impl ReadAt for ReadAtVec {
+impl<'a> ReadAt for ReadAtVec<'a> {
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
         let start = offset as usize;
         let end = start + buf.len();
@@ -82,7 +82,7 @@ fn main() {
         .read_to_end(&mut buffer)
         .expect("Decoding gzip failed");
 
-    let x = ReadAtVec::new(buffer.clone());
+    let x = ReadAtVec::new(&buffer);
     let partitions = list_partitions(&x, &Options::default()).expect("Listing partitions failed");
 
     let Some(part) = partitions.get(1) else {
