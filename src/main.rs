@@ -1,5 +1,5 @@
 use backhand::{FilesystemReader, InnerNode};
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::{fs::File, io::Read};
 
 fn read_file_to_string(read_filesystem: &FilesystemReader, filename: &str) -> Option<String> {
@@ -26,21 +26,33 @@ fn read_file_to_string(read_filesystem: &FilesystemReader, filename: &str) -> Op
 }
 
 fn main() {
-    let diskpath = std::path::Path::new("gluon-ffh-vH39.pre-x86-64-sysupgrade.img");
     let compressed_diskpath = std::path::Path::new("gluon-ffh-vH39.pre-x86-64-sysupgrade.img.gz");
 
+    if !compressed_diskpath.exists() {
+        println!("File {:?} does not exist!", compressed_diskpath);
+    }
+
+    let file = File::open(compressed_diskpath).unwrap();
+    let mut decoder = flate2::read::GzDecoder::new(file);
+    let mut buffer = Vec::new();
+    decoder.read_to_end(&mut buffer).unwrap();
+
+    let cursor = Cursor::new(buffer.clone());
+
     let disk = gpt::GptConfig::new()
-        .open(diskpath)
+        .open_from_device(cursor)
         .expect("failed to open disk");
 
     let blocksize = 512;
     let root_partition_index = 2;
 
     let partitions = disk.partitions();
-    let partition = partitions.get(&root_partition_index).unwrap();
+    let partition: &gpt::partition::Partition = partitions.get(&root_partition_index).unwrap();
+
+    let cursor2 = Cursor::new(buffer);
 
     // read
-    let file = BufReader::new(File::open(diskpath).unwrap());
+    let file = BufReader::new(cursor2);
     let read_filesystem =
         FilesystemReader::from_reader_with_offset(file, partition.first_lba * blocksize).unwrap();
 
@@ -50,6 +62,9 @@ fn main() {
     let gluon_version = read_file_to_string(&read_filesystem, "/lib/gluon/gluon-version")
         .map(|f| f.trim().to_owned());
 
+    let site_version = read_file_to_string(&read_filesystem, "/lib/gluon/site-version")
+        .map(|f| f.trim().to_owned());
+
     let autoupdater_default_branch =
         read_file_to_string(&read_filesystem, "/lib/gluon/autoupdater/default_branch")
             .map(|f| f.trim().to_owned());
@@ -57,20 +72,30 @@ fn main() {
     let autoupdater_default_enabled =
         read_file_to_string(&read_filesystem, "/lib/gluon/autoupdater/default_enabled").is_some();
 
-    if let Some(gluon_version) = gluon_version {
-        println!("gluon-version: {:}", gluon_version);
+    let openwrt_releaseinfo =
+        read_file_to_string(&read_filesystem, "/etc/openwrt_release").map(|f| f.trim().to_owned());
+
+    if let Some(openwrt_releaseinfo) = openwrt_releaseinfo {
+        openwrt_releaseinfo.lines().for_each(|line| {
+            if line.starts_with("DISTRIB_RELEASE=") {
+                println!(
+                    "openwrt-release: {}",
+                    line.trim_start_matches("DISTRIB_RELEASE='")
+                        .trim_end_matches("'")
+                );
+            }
+        });
     }
 
-    if let Some(gluon_release) = gluon_release {
-        println!("gluon-release: {:}", gluon_release);
-    }
+    let maybe_info = |x: Option<String>| x.unwrap_or("n/a".to_owned());
 
-    if let Some(autoupdater_default_branch) = autoupdater_default_branch {
-        println!(
-            "autoupdater-default-branch: {:}",
-            autoupdater_default_branch
-        );
-    }
+    println!("gluon-version: {:}", maybe_info(gluon_version));
+    println!("gluon-release: {:}", maybe_info(gluon_release));
+    println!("site-version: {:}", maybe_info(site_version));
+    println!(
+        "autoupdater-default-branch: {:}",
+        maybe_info(autoupdater_default_branch)
+    );
 
     if autoupdater_default_enabled {
         println!("autoupdater-default-enabled: true");
