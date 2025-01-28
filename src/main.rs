@@ -1,4 +1,5 @@
 use backhand::{FilesystemReader, InnerNode};
+use std::env;
 use std::io::{BufReader, Cursor};
 use std::{fs::File, io::Read};
 
@@ -26,7 +27,13 @@ fn read_file_to_string(read_filesystem: &FilesystemReader, filename: &str) -> Op
 }
 
 fn main() {
-    let compressed_diskpath = std::path::Path::new("gluon-ffh-vH39.pre-x86-64-sysupgrade.img.gz");
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        println!("Usage: {} <image>", args[0]);
+        return;
+    }
+
+    let compressed_diskpath = std::path::Path::new(&args[1]);
 
     if !compressed_diskpath.exists() {
         println!("File {:?} does not exist!", compressed_diskpath);
