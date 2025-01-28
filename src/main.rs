@@ -116,20 +116,21 @@ fn main() {
     let openwrt_releaseinfo =
         read_file_to_string(&read_filesystem, "/etc/openwrt_release").map(|f| f.trim().to_owned());
 
+    let mut openwrt_release: Option<String> = None;
     if let Some(openwrt_releaseinfo) = openwrt_releaseinfo {
         openwrt_releaseinfo.lines().for_each(|line| {
             if line.starts_with("DISTRIB_RELEASE=") {
-                println!(
-                    "openwrt-release: {}",
+                openwrt_release = Some(
                     line.trim_start_matches("DISTRIB_RELEASE='")
                         .trim_end_matches("'")
+                        .to_owned(),
                 );
             }
         });
     }
 
     let maybe_info = |x: Option<String>| x.unwrap_or("n/a".to_owned());
-
+    println!("openwrt-release: {}", maybe_info(openwrt_release));
     println!("gluon-version: {:}", maybe_info(gluon_version));
     println!("gluon-release: {:}", maybe_info(gluon_release));
     println!("site-version: {:}", maybe_info(site_version));
