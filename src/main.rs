@@ -1,5 +1,8 @@
 use backhand::{FilesystemReader, InnerNode};
+use bootsector::pio::ReadAt;
+use bootsector::{list_partitions, Options};
 use std::env;
+use std::io;
 use std::io::{BufReader, Cursor};
 use std::{fs::File, io::Read};
 
@@ -26,6 +29,27 @@ fn read_file_to_string(read_filesystem: &FilesystemReader, filename: &str) -> Op
     return None;
 }
 
+// ReadAt wrapper for Vec<u8>
+
+struct ReadAtVec {
+    data: Vec<u8>,
+}
+
+impl ReadAtVec {
+    pub fn new(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+}
+
+impl ReadAt for ReadAtVec {
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        let start = offset as usize;
+        let end = start + buf.len();
+        buf.copy_from_slice(&self.data[start..end]);
+        Ok(buf.len())
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
@@ -45,24 +69,20 @@ fn main() {
     let mut buffer = Vec::new();
     decoder.read_to_end(&mut buffer).unwrap();
 
-    let cursor = Cursor::new(buffer.clone());
-
-    let disk = gpt::GptConfig::new()
-        .open_from_device(cursor)
-        .expect("failed to open disk");
-
-    let blocksize = 512;
-    let root_partition_index = 2;
-
-    let partitions = disk.partitions();
-    let partition: &gpt::partition::Partition = partitions.get(&root_partition_index).unwrap();
+    let x = ReadAtVec::new(buffer.clone());
+    // let reader = ...;
+    let partitions = list_partitions(&x, &Options::default()).unwrap();
+    if partitions.len() < 2 {
+        println!("Not enough partitions!");
+        return;
+    }
+    let part = &partitions[1];
 
     let cursor2 = Cursor::new(buffer);
 
     // read
     let file = BufReader::new(cursor2);
-    let read_filesystem =
-        FilesystemReader::from_reader_with_offset(file, partition.first_lba * blocksize).unwrap();
+    let read_filesystem = FilesystemReader::from_reader_with_offset(file, part.first_byte).unwrap();
 
     let gluon_release =
         read_file_to_string(&read_filesystem, "/lib/gluon/release").map(|f| f.trim().to_owned());

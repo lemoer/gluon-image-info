@@ -6,5 +6,4 @@ edition = "2021"
 [dependencies]
 bootsector = "0.2.0"
 backhand = "0.20.0"
-gpt = "4.0.0"
 flate2 = "1.0.35"
