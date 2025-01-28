@@ -37,6 +37,7 @@ fn main() {
 
     if !compressed_diskpath.exists() {
         println!("File {:?} does not exist!", compressed_diskpath);
+        return;
     }
 
     let file = File::open(compressed_diskpath).unwrap();
