@@ -11,6 +11,7 @@ openwrt-release: 23.05-SNAPSHOT
 gluon-version: v2023.2.4
 gluon-release: vH39.pre
 site-version: vH37-8-g26dac4a
+vpn-providers: wireguard
 autoupdater-default-branch: wireguard
 autoupdater-default-enabled: true
 ```

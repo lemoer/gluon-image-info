@@ -1,4 +1,4 @@
-use backhand::{FilesystemReader, InnerNode};
+use backhand::{FilesystemReader, InnerNode, SquashfsReadFile};
 use bootsector::pio::ReadAt;
 use bootsector::{list_partitions, Options};
 use std::env;
@@ -6,7 +6,10 @@ use std::io;
 use std::io::{BufReader, Cursor};
 use std::{fs::File, io::Read};
 
-fn read_file_to_string(read_filesystem: &FilesystemReader, fullpath: &str) -> Option<String> {
+fn get_filereader<'a, 'b>(
+    read_filesystem: &'a FilesystemReader<'b>,
+    fullpath: &str,
+) -> Option<SquashfsReadFile<'a, 'b>> {
     for node in read_filesystem.files() {
         let Some(current_fullpath) = node.fullpath.to_str() else {
             // If an inode doesn't have a fullpath, we do not care.
@@ -22,16 +25,26 @@ fn read_file_to_string(read_filesystem: &FilesystemReader, fullpath: &str) -> Op
             continue;
         };
 
-        let mut reader = read_filesystem.file(&file).reader();
-
-        let mut s = String::new();
-        return match reader.read_to_string(&mut s) {
-            Ok(_) => Some(s),
-            Err(_) => None, // non utf-8 file
-        };
+        return Some(read_filesystem.file(&file).reader());
     }
 
     return None;
+}
+
+fn read_file_to_string(read_filesystem: &FilesystemReader, fullpath: &str) -> Option<String> {
+    let Some(mut reader) = get_filereader(read_filesystem, fullpath) else {
+        return None;
+    };
+    let mut s = String::new();
+
+    return match reader.read_to_string(&mut s) {
+        Ok(_) => Some(s),
+        Err(_) => None, // non utf-8 file
+    };
+}
+
+fn file_exists(read_filesystem: &FilesystemReader, fullpath: &str) -> bool {
+    return get_filereader(read_filesystem, fullpath).is_some();
 }
 
 // ReadAt wrapper for Vec<u8>
@@ -112,7 +125,24 @@ fn main() {
             .map(|f| f.trim().to_owned());
 
     let autoupdater_default_enabled =
-        read_file_to_string(&read_filesystem, "/lib/gluon/autoupdater/default_enabled").is_some();
+        file_exists(&read_filesystem, "/lib/gluon/autoupdater/default_enabled");
+
+    let potential_vpn_provides = ["wireguard", "fastd", "tunneldigger"];
+    let vpn_providers: Vec<&str> = potential_vpn_provides
+        .iter()
+        .filter(|x| {
+            file_exists(
+                &read_filesystem,
+                format!("/lib/gluon/mesh-vpn/provider/{:}", x).as_str(),
+            )
+        })
+        .map(|x| *x)
+        .collect();
+    let vpn_providers_str = if vpn_providers.len() > 0 {
+        vpn_providers.join(", ")
+    } else {
+        "none".to_owned()
+    };
 
     let openwrt_releaseinfo =
         read_file_to_string(&read_filesystem, "/etc/openwrt_release").map(|f| f.trim().to_owned());
@@ -131,10 +161,12 @@ fn main() {
     }
 
     let maybe_info = |x: Option<String>| x.unwrap_or("n/a".to_owned());
-    println!("openwrt-release: {}", maybe_info(openwrt_release));
+    println!("openwrt-release: {:}", maybe_info(openwrt_release));
     println!("gluon-version: {:}", maybe_info(gluon_version));
     println!("gluon-release: {:}", maybe_info(gluon_release));
     println!("site-version: {:}", maybe_info(site_version));
+    println!("vpn-providers: {:}", vpn_providers_str);
+
     println!(
         "autoupdater-default-branch: {:}",
         maybe_info(autoupdater_default_branch)
